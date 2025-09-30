@@ -7,7 +7,6 @@ const { sendOrderConfirmationEmail } = require('../helpers/emailHelper');
 // PhonePe Official SDK Configuration
 class PhonePeService {
   constructor() {
-    // Use test credentials if not in production
     const isProduction = process.env.NODE_ENV === 'production';
     
     this.clientId = isProduction 
@@ -21,10 +20,8 @@ class PhonePeService {
     this.clientVersion = parseInt(process.env.PHONEPE_CLIENT_VERSION) || 1;
     this.environment = isProduction ? 'production' : 'UAT';
     
-    // Use sandbox for non-production environments
     const env = isProduction ? Env.PRODUCTION : Env.SANDBOX;
     
-    // Initialize the official PhonePe SDK client
     this.client = StandardCheckoutClient.getInstance(
       this.clientId,
       this.clientSecret,
@@ -33,43 +30,94 @@ class PhonePeService {
     );
     
     this.redirectUrl = process.env.PHONEPE_REDIRECT_URL || 
-      `${process.env.CLIENT_URL || 'http://localhost:3000'}/payment/callback`;
+      `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment/callback`;
     this.callbackUrl = process.env.PHONEPE_CALLBACK_URL || 
       `${process.env.SERVER_URL || 'http://localhost:5000'}/api/payments/callback`;
     
-    console.log(`✅ PhonePe SDK initialized`);
-    console.log(`   Environment: ${this.environment}`);
-    console.log(`   Client ID: ${this.clientId}`);
+    console.log(`PhonePe SDK initialized`);
+    console.log(`Environment: ${this.environment}`);
+    console.log(`Client ID: ${this.clientId}`);
   }
 
   async initiatePayment(paymentData) {
-    try {
-      const payload = {
-        merchantTransactionId: paymentData.transactionId,
-        merchantOrderId: paymentData.transactionId, // PhonePe SDK requires this field
-        merchantUserId: paymentData.userId,
-        amount: paymentData.amount, // Amount in paise
-        redirectUrl: `${this.redirectUrl}?transactionId=${paymentData.transactionId}`,
-        redirectMode: 'POST',
-        callbackUrl: this.callbackUrl,
-        mobileNumber: paymentData.mobileNumber,
-        paymentInstrument: {
-          type: 'PAY_PAGE'
-        }
-      };
+  try {
+    const payload = {
+      merchantTransactionId: paymentData.transactionId,
+      merchantOrderId: paymentData.transactionId,
+      merchantUserId: paymentData.userId,
+      amount: paymentData.amount,
+      redirectUrl: `${this.redirectUrl}?transactionId=${paymentData.transactionId}`,
+      redirectMode: 'POST',
+      callbackUrl: this.callbackUrl,
+      mobileNumber: paymentData.mobileNumber,
+      paymentInstrument: {
+        type: 'PAY_PAGE'
+      }
+    };
 
-      // Use the official SDK method
-      const response = await this.client.pay(payload);
-      return response;
-    } catch (error) {
-      console.error('PhonePe payment initiation error:', error);
+    console.log('PhonePe Payment Request:', JSON.stringify(payload, null, 2));
+
+    const response = await this.client.pay(payload);
+    
+    console.log('PhonePe Response:', JSON.stringify(response, null, 2));
+
+    if (!response) {
+      throw new Error('Empty response from PhonePe SDK');
+    }
+
+    // Check for explicit failure
+    if (response.success === false) {
+      const errorMessage = response.message || response.error || 'Payment initiation failed';
+      const errorCode = response.code || 'UNKNOWN_ERROR';
+      throw new Error(`PhonePe Error [${errorCode}]: ${errorMessage}`);
+    }
+
+    // Handle the actual SDK response structure
+    let paymentUrl;
+    
+    // Try the new SDK structure first (direct redirectUrl)
+    if (response.redirectUrl) {
+      paymentUrl = response.redirectUrl;
+      console.log('PhonePe payment URL (direct):', paymentUrl);
+    }
+    // Fall back to old structure if available
+    else if (response.data?.instrumentResponse?.redirectInfo?.url) {
+      paymentUrl = response.data.instrumentResponse.redirectInfo.url;
+      console.log('PhonePe payment URL (nested):', paymentUrl);
+    }
+    else {
+      console.error('Invalid PhonePe response structure:', response);
+      throw new Error('Invalid response structure from PhonePe - missing redirect URL');
+    }
+
+    // Return normalized response
+    return {
+      success: true,
+      orderId: response.orderId,
+      state: response.state,
+      redirectUrl: paymentUrl,
+      expireAt: response.expireAt,
+      // Keep original response for reference
+      original: response
+    };
+
+  } catch (error) {
+    console.error('PhonePe payment initiation error:', {
+      message: error.message,
+      stack: error.stack,
+      response: error.response?.data
+    });
+
+    if (error.message.includes('PhonePe Error')) {
       throw error;
     }
+    
+    throw new Error(`PhonePe payment initiation failed: ${error.message}`);
   }
+}
 
   async checkStatus(merchantTransactionId) {
     try {
-      // Use the official SDK method
       const response = await this.client.checkStatus(merchantTransactionId);
       return response;
     } catch (error) {
@@ -84,11 +132,10 @@ class PhonePeService {
         merchantUserId: refundData.userId,
         originalTransactionId: refundData.originalTransactionId,
         merchantTransactionId: refundData.refundTransactionId,
-        amount: refundData.amount, // Amount in paise
+        amount: refundData.amount,
         callbackUrl: this.callbackUrl
       };
 
-      // Use the official SDK method
       const response = await this.client.refund(payload);
       return response;
     } catch (error) {
@@ -99,8 +146,6 @@ class PhonePeService {
 
   verifyCallback(callbackData) {
     try {
-      // The SDK handles signature verification internally
-      // Decode the base64 response
       const decodedResponse = JSON.parse(
         Buffer.from(callbackData.response, 'base64').toString()
       );
@@ -198,7 +243,7 @@ const awardCoins = async (userId, amount, orderId) => {
         { new: true }
       );
 
-      console.log(`✅ Awarded ${coinsToAward} coins to user ${userId}`);
+      console.log(`Awarded ${coinsToAward} coins to user ${userId}`);
       
       return {
         coinsAwarded: coinsToAward,
@@ -208,7 +253,7 @@ const awardCoins = async (userId, amount, orderId) => {
     
     return { coinsAwarded: 0, totalCoins: null };
   } catch (error) {
-    console.error('❌ Error awarding coins:', error);
+    console.error('Error awarding coins:', error);
     throw error;
   }
 };
@@ -228,7 +273,7 @@ const createOrder = async (req, res) => {
     
     const userId = req.user.id;
 
-    console.log(`📦 Creating order for user: ${userId}`);
+    console.log(`Creating order for user: ${userId}`);
 
     if (!items || !Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
@@ -281,60 +326,88 @@ const createOrder = async (req, res) => {
     });
 
     await order.save();
-    console.log(`✅ Order created: ${order.orderNumber}`);
+    console.log(`Order created: ${order.orderNumber}`);
 
-    console.log(`💳 Initiating PhonePe payment...`);
+    console.log(`Initiating PhonePe payment...`);
     
-    const paymentResponse = await phonePeService.initiatePayment({
-      transactionId: transactionId,
-      userId: `USER${userId.toString().substring(0, 20)}`,
-      amount: Math.round(amounts.total * 100), // Convert to paise
-      mobileNumber: formatPhoneNumber(shippingAddress.phone)
-    });
+    try {
+      const paymentResponse = await phonePeService.initiatePayment({
+        transactionId: transactionId,
+        userId: `USER${userId.toString().substring(0, 20)}`,
+        amount: Math.round(amounts.total * 100),
+        mobileNumber: formatPhoneNumber(shippingAddress.phone)
+      });
 
-    if (!paymentResponse.success) {
-      throw new Error(paymentResponse.message || 'PhonePe payment initiation failed');
+      if (!paymentResponse.success) {
+        throw new Error(paymentResponse.message || 'PhonePe payment initiation failed');
+      }
+
+      if (!paymentResponse.data?.instrumentResponse?.redirectInfo?.url) {
+        throw new Error('Invalid PhonePe response - missing payment URL');
+      }
+
+      const payment = new Payment({
+        orderId: order._id,
+        userId,
+        phonepeTransactionId: transactionId,
+        phonepeMerchantTransactionId: transactionId,
+        amount: amounts.total,
+        currency: currency || 'INR',
+        status: 'created',
+        email: shippingAddress.email,
+        contact: formatPhoneNumber(shippingAddress.phone),
+        paymentUrl: paymentResponse.data.instrumentResponse.redirectInfo.url,
+        notes: {
+          orderId: order._id.toString(),
+          userId: userId.toString(),
+          orderNumber: order.orderNumber,
+          shipping_method: finalShippingMethod,
+          ...(typeof notes === 'object' ? notes : { notes: notes || '' })
+        }
+      });
+
+      await payment.save();
+      console.log(`Payment record created`);
+
+      res.status(201).json({
+        success: true,
+        message: 'Order created successfully',
+        order: {
+          id: order._id,
+          orderNumber: order.orderNumber,
+          transactionId: transactionId,
+          amount: amounts.total,
+          currency: currency || 'INR'
+        },
+        paymentUrl: paymentResponse.data.instrumentResponse.redirectInfo.url,
+        transactionId: transactionId
+      });
+
+    } catch (phonePeError) {
+      console.error('PhonePe payment initiation failed:', phonePeError.message);
+      
+      await Order.findByIdAndUpdate(order._id, {
+        status: 'cancelled',
+        paymentStatus: 'failed',
+        notes: JSON.stringify({
+          ...JSON.parse(order.notes || '{}'),
+          paymentError: phonePeError.message,
+          errorTime: new Date().toISOString()
+        })
+      });
+
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to initiate payment',
+        error: phonePeError.message,
+        code: 'PAYMENT_INITIATION_FAILED',
+        orderId: order._id,
+        orderNumber: order.orderNumber
+      });
     }
 
-    const payment = new Payment({
-      orderId: order._id,
-      userId,
-      phonepeTransactionId: transactionId,
-      phonepeMerchantTransactionId: transactionId,
-      amount: amounts.total,
-      currency: currency || 'INR',
-      status: 'created',
-      email: shippingAddress.email,
-      contact: formatPhoneNumber(shippingAddress.phone),
-      paymentUrl: paymentResponse.data.instrumentResponse.redirectInfo.url,
-      notes: {
-        orderId: order._id.toString(),
-        userId: userId.toString(),
-        orderNumber: order.orderNumber,
-        shipping_method: finalShippingMethod,
-        ...(typeof notes === 'object' ? notes : { notes: notes || '' })
-      }
-    });
-
-    await payment.save();
-    console.log(`✅ Payment record created`);
-
-    res.status(201).json({
-      success: true,
-      message: 'Order created successfully',
-      order: {
-        id: order._id,
-        orderNumber: order.orderNumber,
-        transactionId: transactionId,
-        amount: amounts.total,
-        currency: currency || 'INR'
-      },
-      paymentUrl: paymentResponse.data.instrumentResponse.redirectInfo.url,
-      transactionId: transactionId
-    });
-
   } catch (error) {
-    console.error('❌ Error creating order:', error.message);
+    console.error('Error creating order:', error.message);
     
     const errorResponse = {
       success: false,
@@ -358,7 +431,7 @@ const handlePaymentCallback = async (req, res) => {
   try {
     const callbackData = req.body;
 
-    console.log(`📞 Received PhonePe callback`);
+    console.log(`Received PhonePe callback`);
 
     if (!callbackData.response) {
       return res.status(400).json({
@@ -367,11 +440,10 @@ const handlePaymentCallback = async (req, res) => {
       });
     }
 
-    // Verify and decode callback using SDK
     const decodedResponse = phonePeService.verifyCallback(callbackData);
     const { merchantTransactionId, transactionId, state, responseCode } = decodedResponse.data;
 
-    console.log(`📊 Transaction: ${merchantTransactionId}, Status: ${state}`);
+    console.log(`Transaction: ${merchantTransactionId}, Status: ${state}`);
 
     const payment = await Payment.findOne({ 
       phonepeTransactionId: merchantTransactionId 
@@ -408,19 +480,19 @@ const handlePaymentCallback = async (req, res) => {
         ).populate('userId');
 
         if (order) {
-          console.log(`✅ Order confirmed: ${order.orderNumber}`);
+          console.log(`Order confirmed: ${order.orderNumber}`);
 
           try {
             await awardCoins(order.userId._id || order.userId, order.total, order._id);
           } catch (coinsError) {
-            console.error('❌ Failed to award coins:', coinsError);
+            console.error('Failed to award coins:', coinsError);
           }
 
           try {
             await sendOrderConfirmationEmail(order);
-            console.log('📧 Order confirmation email sent');
+            console.log('Order confirmation email sent');
           } catch (emailError) {
-            console.error('❌ Failed to send confirmation email:', emailError);
+            console.error('Failed to send confirmation email:', emailError);
           }
         }
 
@@ -449,7 +521,7 @@ const handlePaymentCallback = async (req, res) => {
 
         await session.commitTransaction();
 
-        console.log(`❌ Payment failed: ${decodedResponse.message}`);
+        console.log(`Payment failed: ${decodedResponse.message}`);
 
         res.json({
           success: false,
@@ -465,7 +537,7 @@ const handlePaymentCallback = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('❌ Error handling PhonePe callback:', error);
+    console.error('Error handling PhonePe callback:', error);
     res.status(500).json({
       success: false,
       message: 'Callback processing failed',
@@ -477,9 +549,9 @@ const handlePaymentCallback = async (req, res) => {
 const checkPaymentStatus = async (req, res) => {
   try {
     const { transactionId } = req.params;
-    const userId = req.user?.id; // Make userId optional for admin calls
+    const userId = req.user?.id;
 
-    console.log(`🔍 Checking payment status: ${transactionId}`);
+    console.log(`Checking payment status: ${transactionId}`);
 
     const query = { phonepeTransactionId: transactionId };
     if (userId) {
@@ -519,10 +591,10 @@ const checkPaymentStatus = async (req, res) => {
               const actualUserId = userId || payment.userId;
               await awardCoins(actualUserId, payment.amount, payment.orderId._id);
             } catch (coinsError) {
-              console.error('❌ Error awarding coins:', coinsError);
+              console.error('Error awarding coins:', coinsError);
             }
 
-            console.log(`✅ Payment status updated to paid`);
+            console.log(`Payment status updated to paid`);
           } else if (state === 'FAILED') {
             payment.status = 'failed';
             payment.state = state;
@@ -534,11 +606,11 @@ const checkPaymentStatus = async (req, res) => {
               status: 'cancelled'
             });
 
-            console.log(`❌ Payment status updated to failed`);
+            console.log(`Payment status updated to failed`);
           }
         }
       } catch (statusError) {
-        console.error('⚠️  Error checking PhonePe status:', statusError.message);
+        console.error('Error checking PhonePe status:', statusError.message);
       }
     }
 
@@ -556,7 +628,7 @@ const checkPaymentStatus = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error checking payment status:', error);
+    console.error('Error checking payment status:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to check payment status',
@@ -571,7 +643,7 @@ const processRefund = async (req, res) => {
     const { amount, reason } = req.body;
     const userId = req.user.id;
 
-    console.log(`💸 Processing refund: ${transactionId}`);
+    console.log(`Processing refund: ${transactionId}`);
 
     const payment = await Payment.findOne({
       phonepeTransactionId: transactionId,
@@ -600,7 +672,7 @@ const processRefund = async (req, res) => {
       userId: `USER${userId.toString().substring(0, 20)}`,
       originalTransactionId: transactionId,
       refundTransactionId: refundTransactionId,
-      amount: Math.round(refundAmount * 100) // Convert to paise
+      amount: Math.round(refundAmount * 100)
     });
 
     if (!refundResponse.success) {
@@ -617,10 +689,10 @@ const processRefund = async (req, res) => {
             { $inc: { coins: -coinsToDeduct } },
             { new: true }
           );
-          console.log(`🪙 Deducted ${coinsToDeduct} coins`);
+          console.log(`Deducted ${coinsToDeduct} coins`);
         }
       } catch (coinsError) {
-        console.error('❌ Error deducting coins:', coinsError);
+        console.error('Error deducting coins:', coinsError);
       }
     }
 
@@ -646,7 +718,7 @@ const processRefund = async (req, res) => {
       });
     }
 
-    console.log(`✅ Refund processed successfully`);
+    console.log(`Refund processed successfully`);
 
     res.json({
       success: true,
@@ -660,7 +732,7 @@ const processRefund = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error processing refund:', error);
+    console.error('Error processing refund:', error);
     res.status(500).json({
       success: false,
       message: 'Refund processing failed',
@@ -700,7 +772,7 @@ const getPaymentHistory = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Error fetching payment history:', error);
+    console.error('Error fetching payment history:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch payment history',
@@ -745,9 +817,7 @@ const getPaymentHealth = async (req, res) => {
 
 const testPhonePeConnection = async (req, res) => {
   try {
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`🧪 Testing PhonePe Connection`);
-    console.log(`${'='.repeat(60)}`);
+    console.log(`Testing PhonePe Connection`);
 
     const testResults = {
       timestamp: new Date().toISOString(),
@@ -756,7 +826,6 @@ const testPhonePeConnection = async (req, res) => {
       tests: []
     };
 
-    // Test 1: Configuration Check
     const configTest = {
       name: 'Configuration Check',
       status: phonePeService.clientId && phonePeService.clientSecret ? 'pass' : 'fail',
@@ -768,7 +837,6 @@ const testPhonePeConnection = async (req, res) => {
     };
     testResults.tests.push(configTest);
 
-    // Test 2: SDK Initialization
     const sdkTest = {
       name: 'SDK Initialization',
       status: phonePeService.client ? 'pass' : 'fail',
@@ -782,9 +850,7 @@ const testPhonePeConnection = async (req, res) => {
     const allPassed = testResults.tests.every(test => test.status === 'pass');
     testResults.overall = allPassed ? 'pass' : 'fail';
 
-    console.log(`\n${'='.repeat(60)}`);
-    console.log(`Overall Test Result: ${allPassed ? '✅ PASS' : '❌ FAIL'}`);
-    console.log(`${'='.repeat(60)}\n`);
+    console.log(`Overall Test Result: ${allPassed ? 'PASS' : 'FAIL'}`);
 
     res.json({
       success: allPassed,
@@ -793,7 +859,7 @@ const testPhonePeConnection = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Test execution failed:', error);
+    console.error('Test execution failed:', error);
     res.status(500).json({
       success: false,
       message: 'Test execution failed',
