@@ -1,4 +1,4 @@
-const { StandardCheckoutClient, Env } = require('phonepe-pg-sdk-node');
+const { StandardCheckoutClient, StandardCheckoutPayRequest, Env, MetaInfo } = require('phonepe-pg-sdk-node');
 const Order = require('../models/Order');
 const Payment = require('../models/Payment');
 const User = require('../models/User');
@@ -32,93 +32,98 @@ class PhonePeService {
     this.redirectUrl = process.env.PHONEPE_REDIRECT_URL || 
       `${process.env.CLIENT_URL || 'http://localhost:5173'}/payment/callback`;
     this.callbackUrl = process.env.PHONEPE_CALLBACK_URL || 
-      `${process.env.SERVER_URL || 'http://localhost:5000'}/api/payments/callback`;
+      `${process.env.SERVER_URL || 'http://localhost:5500'}/api/payments/callback`;
     
     console.log(`PhonePe SDK initialized`);
     console.log(`Environment: ${this.environment}`);
     console.log(`Client ID: ${this.clientId}`);
   }
 
-  async initiatePayment(paymentData) {
-  try {
-    const payload = {
-      merchantTransactionId: paymentData.transactionId,
-      merchantOrderId: paymentData.transactionId,
-      merchantUserId: paymentData.userId,
-      amount: paymentData.amount,
-      redirectUrl: `${this.redirectUrl}?transactionId=${paymentData.transactionId}`,
-      redirectMode: 'POST',
-      callbackUrl: this.callbackUrl,
-      mobileNumber: paymentData.mobileNumber,
-      paymentInstrument: {
-        type: 'PAY_PAGE'
-      }
-    };
-
-    console.log('PhonePe Payment Request:', JSON.stringify(payload, null, 2));
-
-    const response = await this.client.pay(payload);
+  // Create payment request using builder pattern with StandardCheckoutPayRequest
+  createPaymentRequest(paymentData) {
+    // Build MetaInfo with UDF fields
+    const metaInfoBuilder = MetaInfo.builder();
     
-    console.log('PhonePe Response:', JSON.stringify(response, null, 2));
-
-    if (!response) {
-      throw new Error('Empty response from PhonePe SDK');
-    }
-
-    // Check for explicit failure
-    if (response.success === false) {
-      const errorMessage = response.message || response.error || 'Payment initiation failed';
-      const errorCode = response.code || 'UNKNOWN_ERROR';
-      throw new Error(`PhonePe Error [${errorCode}]: ${errorMessage}`);
-    }
-
-    // Handle the actual SDK response structure
-    let paymentUrl;
-    
-    // Try the new SDK structure first (direct redirectUrl)
-    if (response.redirectUrl) {
-      paymentUrl = response.redirectUrl;
-      console.log('PhonePe payment URL (direct):', paymentUrl);
-    }
-    // Fall back to old structure if available
-    else if (response.data?.instrumentResponse?.redirectInfo?.url) {
-      paymentUrl = response.data.instrumentResponse.redirectInfo.url;
-      console.log('PhonePe payment URL (nested):', paymentUrl);
-    }
-    else {
-      console.error('Invalid PhonePe response structure:', response);
-      throw new Error('Invalid response structure from PhonePe - missing redirect URL');
-    }
-
-    // Return normalized response
-    return {
-      success: true,
-      orderId: response.orderId,
-      state: response.state,
-      redirectUrl: paymentUrl,
-      expireAt: response.expireAt,
-      // Keep original response for reference
-      original: response
-    };
-
-  } catch (error) {
-    console.error('PhonePe payment initiation error:', {
-      message: error.message,
-      stack: error.stack,
-      response: error.response?.data
-    });
-
-    if (error.message.includes('PhonePe Error')) {
-      throw error;
+    if (paymentData.metaInfo) {
+      if (paymentData.metaInfo.udf1) metaInfoBuilder.udf1(paymentData.metaInfo.udf1);
+      if (paymentData.metaInfo.udf2) metaInfoBuilder.udf2(paymentData.metaInfo.udf2);
+      if (paymentData.metaInfo.udf3) metaInfoBuilder.udf3(paymentData.metaInfo.udf3);
+      if (paymentData.metaInfo.udf4) metaInfoBuilder.udf4(paymentData.metaInfo.udf4);
+      if (paymentData.metaInfo.udf5) metaInfoBuilder.udf5(paymentData.metaInfo.udf5);
     }
     
-    throw new Error(`PhonePe payment initiation failed: ${error.message}`);
+    const metaInfo = metaInfoBuilder.build();
+
+    // Build payment request according to PhonePe documentation
+    const request = StandardCheckoutPayRequest.builder()
+      .merchantOrderId(paymentData.merchantOrderId)
+      .amount(paymentData.amount)
+      .redirectUrl(paymentData.redirectUrl)
+      .metaInfo(metaInfo);
+
+    return request.build();
   }
-}
 
-  async checkStatus(merchantTransactionId) {
+  async initiatePayment(paymentData) {
     try {
-      const response = await this.client.checkStatus(merchantTransactionId);
+      console.log('Creating payment request with builder pattern...');
+      
+      // Use StandardCheckoutPayRequest builder
+      const payRequest = this.createPaymentRequest(paymentData);
+
+      console.log('PhonePe Payment Request:', JSON.stringify(payRequest, null, 2));
+
+      // Execute payment
+      const response = await this.client.pay(payRequest);
+      
+      console.log('PhonePe Response:', JSON.stringify(response, null, 2));
+
+      if (!response) {
+        throw new Error('Empty response from PhonePe SDK');
+      }
+
+      // Check for explicit failure
+      if (response.success === false) {
+        const errorMessage = response.message || response.error || 'Payment initiation failed';
+        const errorCode = response.code || 'UNKNOWN_ERROR';
+        throw new Error(`PhonePe Error [${errorCode}]: ${errorMessage}`);
+      }
+
+      // Handle the SDK response structure according to documentation
+      // Response contains: state, redirectUrl, orderId, expireAt
+      if (!response.redirectUrl) {
+        console.error('Invalid PhonePe response structure:', response);
+        throw new Error('Invalid response structure from PhonePe - missing redirect URL');
+      }
+
+      // Return normalized response
+      return {
+        success: true,
+        orderId: response.orderId,
+        state: response.state,
+        redirectUrl: response.redirectUrl,
+        expireAt: response.expireAt,
+        original: response
+      };
+
+    } catch (error) {
+      console.error('PhonePe payment initiation error:', {
+        message: error.message,
+        stack: error.stack,
+        response: error.response?.data
+      });
+
+      if (error.message.includes('PhonePe Error')) {
+        throw error;
+      }
+      
+      throw new Error(`PhonePe payment initiation failed: ${error.message}`);
+    }
+  }
+
+  async checkStatus(merchantOrderId) {
+    try {
+      const response = await this.client.checkStatus(merchantOrderId);
       return response;
     } catch (error) {
       console.error('PhonePe status check error:', error);
@@ -164,8 +169,9 @@ const generateOrderNumber = () => {
   return `ORD-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 };
 
-const generateTransactionId = () => {
-  return `TXN${Date.now()}${Math.floor(Math.random() * 10000).toString().padStart(4, '0')}`;
+const generateMerchantOrderId = () => {
+  const { randomUUID } = require('crypto');
+  return randomUUID();
 };
 
 const calculateCoins = (amount) => {
@@ -268,7 +274,8 @@ const createOrder = async (req, res) => {
       notes,
       amount,
       currency,
-      orderDetails
+      orderDetails,
+      metaInfo // UDF fields from client
     } = req.body;
     
     const userId = req.user.id;
@@ -305,7 +312,8 @@ const createOrder = async (req, res) => {
       });
     }
 
-    const transactionId = generateTransactionId();
+    // Generate unique merchant order ID (UUID format as per documentation)
+    const merchantOrderId = generateMerchantOrderId();
 
     const order = new Order({
       userId,
@@ -322,52 +330,66 @@ const createOrder = async (req, res) => {
       status: 'pending',
       paymentStatus: 'pending',
       notes: typeof notes === 'object' ? JSON.stringify(notes) : (notes || ''),
-      phonepeTransactionId: transactionId
+      phonepeTransactionId: merchantOrderId
     });
 
     await order.save();
     console.log(`Order created: ${order.orderNumber}`);
 
-    console.log(`Initiating PhonePe payment...`);
+    console.log(`Initiating PhonePe payment with StandardCheckoutPayRequest builder...`);
     
     try {
+      // Prepare meta info with UDF fields (max 256 characters each)
+      const paymentMetaInfo = {
+        udf1: order.orderNumber,
+        udf2: userId.toString().substring(0, 256),
+        udf3: finalShippingMethod,
+        udf4: metaInfo?.udf4 || shippingAddress.email.substring(0, 256),
+        udf5: metaInfo?.udf5 || order._id.toString()
+      };
+
       const paymentResponse = await phonePeService.initiatePayment({
-        transactionId: transactionId,
-        userId: `USER${userId.toString().substring(0, 20)}`,
-        amount: Math.round(amounts.total * 100),
-        mobileNumber: formatPhoneNumber(shippingAddress.phone)
+        merchantOrderId: merchantOrderId,
+        amount: Math.round(amounts.total * 100), // Amount in paisa (minimum 100)
+        redirectUrl: `${phonePeService.redirectUrl}?merchantOrderId=${merchantOrderId}`,
+        metaInfo: paymentMetaInfo
       });
 
       if (!paymentResponse.success) {
         throw new Error(paymentResponse.message || 'PhonePe payment initiation failed');
       }
 
-      if (!paymentResponse.data?.instrumentResponse?.redirectInfo?.url) {
+      if (!paymentResponse.redirectUrl) {
         throw new Error('Invalid PhonePe response - missing payment URL');
       }
 
       const payment = new Payment({
         orderId: order._id,
         userId,
-        phonepeTransactionId: transactionId,
-        phonepeMerchantTransactionId: transactionId,
+        phonepeTransactionId: merchantOrderId,
+        phonepeMerchantTransactionId: merchantOrderId,
+        phonepeOrderId: paymentResponse.orderId,
         amount: amounts.total,
         currency: currency || 'INR',
         status: 'created',
+        state: paymentResponse.state,
         email: shippingAddress.email,
         contact: formatPhoneNumber(shippingAddress.phone),
-        paymentUrl: paymentResponse.data.instrumentResponse.redirectInfo.url,
+        paymentUrl: paymentResponse.redirectUrl,
+        expireAt: paymentResponse.expireAt,
         notes: {
           orderId: order._id.toString(),
           userId: userId.toString(),
           orderNumber: order.orderNumber,
           shipping_method: finalShippingMethod,
+          phonepeOrderId: paymentResponse.orderId,
+          merchantOrderId: merchantOrderId,
           ...(typeof notes === 'object' ? notes : { notes: notes || '' })
         }
       });
 
       await payment.save();
-      console.log(`Payment record created`);
+      console.log(`Payment record created with PhonePe Order ID: ${paymentResponse.orderId}`);
 
       res.status(201).json({
         success: true,
@@ -375,12 +397,15 @@ const createOrder = async (req, res) => {
         order: {
           id: order._id,
           orderNumber: order.orderNumber,
-          transactionId: transactionId,
+          merchantOrderId: merchantOrderId,
+          phonepeOrderId: paymentResponse.orderId,
           amount: amounts.total,
-          currency: currency || 'INR'
+          currency: currency || 'INR',
+          state: paymentResponse.state,
+          expireAt: paymentResponse.expireAt
         },
-        paymentUrl: paymentResponse.data.instrumentResponse.redirectInfo.url,
-        transactionId: transactionId
+        paymentUrl: paymentResponse.redirectUrl,
+        merchantOrderId: merchantOrderId
       });
 
     } catch (phonePeError) {
@@ -443,7 +468,7 @@ const handlePaymentCallback = async (req, res) => {
     const decodedResponse = phonePeService.verifyCallback(callbackData);
     const { merchantTransactionId, transactionId, state, responseCode } = decodedResponse.data;
 
-    console.log(`Transaction: ${merchantTransactionId}, Status: ${state}`);
+    console.log(`MerchantOrderId: ${merchantTransactionId}, Status: ${state}`);
 
     const payment = await Payment.findOne({ 
       phonepeTransactionId: merchantTransactionId 
@@ -548,12 +573,12 @@ const handlePaymentCallback = async (req, res) => {
 
 const checkPaymentStatus = async (req, res) => {
   try {
-    const { transactionId } = req.params;
+    const { merchantOrderId } = req.params;
     const userId = req.user?.id;
 
-    console.log(`Checking payment status: ${transactionId}`);
+    console.log(`Checking payment status: ${merchantOrderId}`);
 
-    const query = { phonepeTransactionId: transactionId };
+    const query = { phonepeTransactionId: merchantOrderId };
     if (userId) {
       query.userId = userId;
     }
@@ -569,7 +594,7 @@ const checkPaymentStatus = async (req, res) => {
 
     if (payment.status === 'created' || payment.status === 'pending') {
       try {
-        const statusResponse = await phonePeService.checkStatus(transactionId);
+        const statusResponse = await phonePeService.checkStatus(merchantOrderId);
 
         if (statusResponse.success) {
           const { state, responseCode } = statusResponse.data;
@@ -618,11 +643,14 @@ const checkPaymentStatus = async (req, res) => {
       success: true,
       payment: {
         id: payment._id,
-        transactionId: payment.phonepeTransactionId,
+        merchantOrderId: payment.phonepeTransactionId,
+        phonepeOrderId: payment.phonepeOrderId,
         status: payment.status,
+        state: payment.state,
         amount: payment.amount,
         currency: payment.currency,
         paymentDate: payment.paymentDate,
+        expireAt: payment.expireAt,
         order: payment.orderId
       }
     });
@@ -639,14 +667,14 @@ const checkPaymentStatus = async (req, res) => {
 
 const processRefund = async (req, res) => {
   try {
-    const { transactionId } = req.params;
+    const { merchantOrderId } = req.params;
     const { amount, reason } = req.body;
     const userId = req.user.id;
 
-    console.log(`Processing refund: ${transactionId}`);
+    console.log(`Processing refund: ${merchantOrderId}`);
 
     const payment = await Payment.findOne({
-      phonepeTransactionId: transactionId,
+      phonepeTransactionId: merchantOrderId,
       userId,
       status: 'paid'
     }).populate('orderId');
@@ -670,7 +698,7 @@ const processRefund = async (req, res) => {
 
     const refundResponse = await phonePeService.initiateRefund({
       userId: `USER${userId.toString().substring(0, 20)}`,
-      originalTransactionId: transactionId,
+      originalTransactionId: merchantOrderId,
       refundTransactionId: refundTransactionId,
       amount: Math.round(refundAmount * 100)
     });
@@ -796,7 +824,9 @@ const getPaymentHealth = async (req, res) => {
         configuration: configStatus,
         phonePeService: {
           status: 'configured',
-          message: 'PhonePe SDK initialized'
+          message: 'PhonePe SDK initialized with StandardCheckoutPayRequest builder',
+          sdkVersion: 'phonepe-pg-sdk-node',
+          builderPattern: true
         },
         database: {
           status: 'connected',
@@ -817,7 +847,7 @@ const getPaymentHealth = async (req, res) => {
 
 const testPhonePeConnection = async (req, res) => {
   try {
-    console.log(`Testing PhonePe Connection`);
+    console.log(`Testing PhonePe Connection with StandardCheckoutPayRequest Builder`);
 
     const testResults = {
       timestamp: new Date().toISOString(),
@@ -832,7 +862,8 @@ const testPhonePeConnection = async (req, res) => {
       details: {
         clientId: !!phonePeService.clientId,
         clientSecret: !!phonePeService.clientSecret,
-        clientVersion: phonePeService.clientVersion
+        clientVersion: phonePeService.clientVersion,
+        environment: phonePeService.environment
       }
     };
     testResults.tests.push(configTest);
@@ -842,7 +873,9 @@ const testPhonePeConnection = async (req, res) => {
       status: phonePeService.client ? 'pass' : 'fail',
       details: {
         initialized: !!phonePeService.client,
-        environment: phonePeService.environment
+        environment: phonePeService.environment,
+        builderAvailable: typeof StandardCheckoutPayRequest.builder === 'function',
+        metaInfoAvailable: typeof MetaInfo.builder === 'function'
       }
     };
     testResults.tests.push(sdkTest);
@@ -877,7 +910,9 @@ const getPhonePeConfig = async (req, res) => {
       redirectUrl: phonePeService.redirectUrl,
       callbackUrl: phonePeService.callbackUrl,
       configured: !!(phonePeService.clientId && phonePeService.clientSecret),
-      version: 'v2'
+      version: 'v2',
+      builderPattern: true,
+      sdkType: 'StandardCheckoutPayRequest'
     };
 
     res.json({

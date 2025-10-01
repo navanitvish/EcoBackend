@@ -33,7 +33,69 @@ router.get('/test', testPhonePeConnection);
 // Create PhonePe order - Protected route
 router.post('/create-order', authenticateToken, createOrder);
 
-// Check payment status - Protected route
+// Check payment status by merchantOrderId - Protected route
+// THIS IS THE FIXED ROUTE FOR THE FRONTEND CALLBACK
+router.get('/status/merchant/:merchantOrderId', authenticateToken, async (req, res) => {
+  try {
+    const { merchantOrderId } = req.params;
+    const userId = req.user.id;
+
+    console.log('Checking payment status for merchantOrderId:', merchantOrderId);
+    console.log('User ID:', userId);
+
+    // FIXED: Search by phonepeTransactionId (not merchantOrderId)
+    const payment = await Payment.findOne({
+      phonepeTransactionId: merchantOrderId,
+      userId: userId
+    }).populate('orderId');
+
+    console.log('Payment found:', payment ? 'Yes' : 'No');
+
+    if (!payment) {
+      console.log('Payment not found in database for merchantOrderId:', merchantOrderId);
+      return res.status(404).json({
+        success: false,
+        message: 'Payment not found',
+        error: 'No payment found with this merchant order ID'
+      });
+    }
+
+    console.log('Payment status:', payment.status);
+
+    // Return the payment details from database
+    res.json({
+      success: true,
+      payment: {
+        id: payment._id,
+        merchantOrderId: payment.phonepeTransactionId,
+        orderId: payment.orderId,
+        amount: payment.amount,
+        currency: payment.currency,
+        status: payment.status,
+        state: payment.state,
+        phonepeOrderId: payment.phonepeOrderId,
+        phonepeTransactionId: payment.phonepeTransactionId,
+        phonepePaymentId: payment.phonepePaymentId,
+        responseCode: payment.responseCode,
+        createdAt: payment.createdAt,
+        updatedAt: payment.updatedAt,
+        paymentDate: payment.paymentDate,
+        email: payment.email,
+        contact: payment.contact
+      }
+    });
+
+  } catch (error) {
+    console.error('Error checking payment status:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to check payment status',
+      error: error.message
+    });
+  }
+});
+
+// Check payment status - Protected route (legacy endpoint by transactionId)
 router.get('/status/:transactionId', authenticateToken, checkPaymentStatus);
 
 // Get user's payment history - Protected route
@@ -127,6 +189,7 @@ router.get('/admin/payments', authenticateToken, requireAdmin, async (req, res) 
       query.$or = [
         { phonepeTransactionId: { $regex: search, $options: 'i' } },
         { phonepePaymentId: { $regex: search, $options: 'i' } },
+        { phonepeMerchantTransactionId: { $regex: search, $options: 'i' } },
         { email: { $regex: search, $options: 'i' } }
       ];
     }
@@ -421,10 +484,11 @@ router.get('/admin/export', authenticateToken, requireAdmin, async (req, res) =>
       .sort({ createdAt: -1 });
 
     const csv = [
-      ['Date', 'Transaction ID', 'PhonePe ID', 'User', 'Email', 'Order Number', 'Amount', 'Currency', 'Status', 'Payment Date'].join(','),
+      ['Date', 'Merchant Order ID', 'Transaction ID', 'PhonePe ID', 'User', 'Email', 'Order Number', 'Amount', 'Currency', 'Status', 'Payment Date'].join(','),
       ...payments.map(p => [
         new Date(p.createdAt).toISOString(),
-        p.phonepeTransactionId,
+        p.phonepeTransactionId || 'N/A',
+        p.phonepeTransactionId || 'N/A',
         p.phonepePaymentId || 'N/A',
         p.userId?.name || 'N/A',
         p.email || 'N/A',
@@ -475,7 +539,7 @@ router.post('/admin/retry/:transactionId', authenticateToken, requireAdmin, asyn
       });
     }
 
-    req.params.transactionId = transactionId;
+    req.params.merchantOrderId = transactionId;
     return checkPaymentStatus(req, res);
 
   } catch (error) {

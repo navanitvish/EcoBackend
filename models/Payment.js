@@ -1,4 +1,3 @@
-// models/Payment.js
 const mongoose = require('mongoose');
 
 const paymentSchema = new mongoose.Schema({
@@ -14,6 +13,7 @@ const paymentSchema = new mongoose.Schema({
     required: true,
     index: true
   },
+  
   // PhonePe specific fields
   phonepeTransactionId: {
     type: String,
@@ -26,10 +26,16 @@ const paymentSchema = new mongoose.Schema({
     required: true,
     index: true
   },
-  phonepePaymentId: {
+  phonepeOrderId: {
     type: String,
     index: true
   },
+  phonepePaymentId: {
+    type: String,
+    index: true,
+    sparse: true
+  },
+  
   amount: {
     type: Number,
     required: true,
@@ -46,10 +52,11 @@ const paymentSchema = new mongoose.Schema({
     default: 'created',
     index: true
   },
+  
   // PhonePe response fields
   state: {
     type: String,
-    enum: ['PENDING', 'COMPLETED', 'FAILED', 'CANCELLED']
+    enum: ['PENDING', 'COMPLETED', 'FAILED', 'CANCELLED', 'EXPIRED']
   },
   responseCode: {
     type: String
@@ -61,6 +68,7 @@ const paymentSchema = new mongoose.Schema({
   paymentInstrument: {
     type: String // UPI, CARD, NET_BANKING, etc.
   },
+  
   email: {
     type: String,
     required: true,
@@ -74,11 +82,16 @@ const paymentSchema = new mongoose.Schema({
     type: String // PhonePe payment page URL
   },
   paymentDate: {
-    type: Date
+    type: Date,
+    index: true
+  },
+  expireAt: {
+    type: Number // Epoch timestamp when payment expires
   },
   failureReason: {
     type: String
   },
+  
   refunds: [{
     refundId: String,
     amount: Number,
@@ -89,6 +102,7 @@ const paymentSchema = new mongoose.Schema({
     reason: String,
     notes: String
   }],
+  
   notes: {
     type: mongoose.Schema.Types.Mixed,
     default: {}
@@ -100,6 +114,22 @@ const paymentSchema = new mongoose.Schema({
 // Index for efficient queries
 paymentSchema.index({ status: 1, createdAt: -1 });
 paymentSchema.index({ userId: 1, status: 1, createdAt: -1 });
-paymentSchema.index({ phonepePaymentId: 1 }, { sparse: true });
+paymentSchema.index({ createdAt: -1 });
+
+// Virtual for checking if payment is successful
+paymentSchema.virtual('isSuccessful').get(function() {
+  return this.status === 'paid';
+});
+
+// Virtual for checking if payment is pending
+paymentSchema.virtual('isPending').get(function() {
+  return this.status === 'created' || this.status === 'pending';
+});
+
+// Method to check if payment is expired
+paymentSchema.methods.isExpired = function() {
+  if (!this.expireAt) return false;
+  return Date.now() > this.expireAt;
+};
 
 module.exports = mongoose.model('Payment', paymentSchema);
