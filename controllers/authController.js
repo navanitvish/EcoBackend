@@ -1,7 +1,28 @@
+// ============================================
+// 1. INSTALL REQUIRED PACKAGES
+// ============================================
+// npm install google-auth-library
+
+// ============================================
+// 2. ENVIRONMENT VARIABLES (.env file)
+// ============================================
+/*
+GOOGLE_CLIENT_ID=your-google-client-id.apps.googleusercontent.com
+GOOGLE_CLIENT_SECRET=your-google-client-secret
+JWT_SECRET=your-jwt-secret
+*/
+
+// ============================================
+// 3. UPDATED AUTH CONTROLLER (authController.js)
+// ============================================
 const User = require('../models/User');
 const jwt = require('jsonwebtoken');
 const { sendOTPEmail } = require('../helpers/emailHelper');
 const { generateOTP } = require('../helpers/otpHelper');
+const { OAuth2Client } = require('google-auth-library');
+
+// Initialize Google OAuth client
+const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Generate JWT Token
 const generateToken = (userId) => {
@@ -14,14 +35,12 @@ const register = async (req, res) => {
     const { name, email, password } = req.body;
     console.log('\n🔵 REGISTRATION REQUEST:', { name, email, password: '***' });
 
-    // Check if user already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       console.log('❌ User already exists:', email);
       return res.status(400).json({ message: 'User already exists' });
     }
 
-    // Create new user (NOT VERIFIED YET)
     const user = new User({
       name,
       email,
@@ -32,9 +51,8 @@ const register = async (req, res) => {
     await user.save();
     console.log('✅ User created with ID:', user._id);
 
-    // Generate and send OTP immediately after registration
     const otp = generateOTP();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     console.log('🔐 Generated OTP:', otp);
     console.log('⏰ OTP expires at:', otpExpires);
@@ -45,14 +63,12 @@ const register = async (req, res) => {
 
     console.log('💾 User updated with OTP info');
 
-    // Send OTP email
     await sendOTPEmail(email, otp, user.name);
 
     res.status(201).json({
       message: 'Registration successful! Please check your email for OTP verification.',
       userId: user._id,
       otpSent: true,
-      // FOR DEBUGGING - REMOVE IN PRODUCTION
       debug: {
         otp: otp,
         expires: otpExpires,
@@ -66,7 +82,7 @@ const register = async (req, res) => {
   }
 };
 
-// Verify OTP with detailed debugging
+// Verify OTP
 const verifyOTP = async (req, res) => {
   try {
     const { email, otp } = req.body;
@@ -75,28 +91,22 @@ const verifyOTP = async (req, res) => {
       return res.status(400).json({ message: 'Email and OTP are required' });
     }
 
-    // Normalize email
     const searchEmail = email.toLowerCase().trim();
-
-    // Find user by email
     const user = await User.findOne({ email: searchEmail });
 
     if (!user) {
       return res.status(400).json({ message: 'User not found' });
     }
 
-    // Check OTP and expiration
     if (user.otp !== otp || user.otpExpires < new Date()) {
       return res.status(400).json({ message: 'Invalid or expired OTP' });
     }
 
-    // Clear OTP and verify
     user.otp = null;
     user.otpExpires = null;
     user.isVerified = true;
     await user.save();
 
-    // Generate JWT
     const token = generateToken(user._id);
 
     res.json({
@@ -106,7 +116,9 @@ const verifyOTP = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        isVerified: user.isVerified
+        isVerified: user.isVerified,
+        profileImage: user.profileImage,
+        coins: user.coins
       }
     });
 
@@ -122,7 +134,6 @@ const login = async (req, res) => {
     const { email, password } = req.body;
     console.log('\n🔵 LOGIN REQUEST:', { email, password: '***' });
 
-    // Find user
     const user = await User.findOne({ email });
     if (!user) {
       console.log('❌ User not found:', email);
@@ -132,11 +143,9 @@ const login = async (req, res) => {
     console.log('✅ User found:', user.email);
     console.log('Is verified:', user.isVerified);
 
-    // Check if user is verified
     if (!user.isVerified) {
       console.log('⚠️ User not verified, sending new OTP');
       
-      // Generate new OTP
       const otp = generateOTP();
       const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
       
@@ -149,18 +158,16 @@ const login = async (req, res) => {
       return res.status(400).json({ 
         message: 'Please verify your email first. New OTP sent to your email.',
         needsVerification: true,
-        debug: { otp: otp } // FOR DEBUGGING
+        debug: { otp: otp }
       });
     }
 
-    // Check password
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
       console.log('❌ Password mismatch');
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
-    // Generate token
     const token = generateToken(user._id);
     console.log('✅ Login successful');
 
@@ -171,7 +178,9 @@ const login = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        isVerified: user.isVerified
+        isVerified: user.isVerified,
+        profileImage: user.profileImage,
+        coins: user.coins
       }
     });
 
@@ -192,7 +201,6 @@ const resendOTP = async (req, res) => {
       return res.status(400).json({ message: 'User not found or already verified' });
     }
 
-    // Generate new OTP
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
@@ -202,12 +210,11 @@ const resendOTP = async (req, res) => {
     user.otpExpires = otpExpires;
     await user.save();
 
-    // Send OTP email
     await sendOTPEmail(email, otp, user.name);
 
     res.json({ 
       message: 'New OTP sent to your email',
-      debug: { otp: otp } // FOR DEBUGGING
+      debug: { otp: otp }
     });
 
   } catch (error) {
@@ -216,35 +223,56 @@ const resendOTP = async (req, res) => {
   }
 };
 
-// Google OAuth (UNCHANGED - Your existing logic)
+// ✨ UPDATED: Google OAuth Sign In/Sign Up (accepts user data directly)
 const googleAuth = async (req, res) => {
   try {
-    const { name, email, googleId } = req.body;
-    console.log('\n🔵 GOOGLE AUTH REQUEST:', { name, email, googleId });
+    const { email, name, googleId, profileImage } = req.body;
+    console.log('\n🔵 GOOGLE AUTH REQUEST:', { email, name, googleId });
 
-    // Find or create user
-    let user = await User.findOne({ $or: [{ email }, { googleId }] });
-    
-    if (!user) {
+    // Validate required fields
+    if (!email || !googleId) {
+      return res.status(400).json({ 
+        message: 'Email and Google ID are required' 
+      });
+    }
+
+    // Check if user exists
+    let user = await User.findOne({ email });
+
+    if (user) {
+      // Existing user - just log them in
+      console.log('✅ Existing user found');
+      
+      // Update Google info if not set
+      if (!user.googleId) {
+        user.googleId = googleId;
+      }
+      if (!user.isVerified) {
+        user.isVerified = true;
+      }
+      if (profileImage && (!user.profileImage || user.profileImage.includes('unsplash'))) {
+        user.profileImage = profileImage;
+      }
+      
+      await user.save();
+    } else {
+      // New user - create account
+      console.log('✅ Creating new Google user');
+      
       user = new User({
         name,
         email,
         googleId,
         isVerified: true,
-        password: undefined
+        password: null, // Explicitly set to null for Google users
+        profileImage: profileImage || 'https://images.unsplash.com/photo-1568602471122-7832951cc4c5?w=600'
       });
+
       await user.save();
-      console.log('✅ New Google user created');
-    } else {
-      if (!user.isVerified) {
-        user.isVerified = true;
-        user.googleId = googleId;
-        await user.save();
-        console.log('✅ Existing user verified via Google');
-      }
+      console.log('✅ New Google user created with ID:', user._id);
     }
 
-    // Generate token
+    // Generate JWT token
     const token = generateToken(user._id);
 
     res.json({
@@ -254,13 +282,30 @@ const googleAuth = async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        isVerified: user.isVerified
+        isVerified: user.isVerified,
+        profileImage: user.profileImage,
+        coins: user.coins,
+        phone: user.phone,
+        location: user.location,
+        membershipType: user.membershipType
       }
     });
 
   } catch (error) {
     console.error('❌ Google auth error:', error);
-    res.status(500).json({ message: 'Server error' });
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(400).json({ 
+        message: 'This Google account is already registered',
+        error: 'Duplicate account'
+      });
+    }
+    
+    res.status(500).json({ 
+      message: 'Google authentication failed',
+      error: error.message 
+    });
   }
 };
 

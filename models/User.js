@@ -24,10 +24,12 @@ const userSchema = new mongoose.Schema(
       },
       default: null,
     },
-    googleId: {
-      type: String,
-      default: null,
-    },
+  googleId: {
+  type: String,
+  unique: true,  // Add this
+  sparse: true,  // Already there - good! This allows multiple null values
+},
+   
     isVerified: {
       type: Boolean,
       default: false,

@@ -10,7 +10,6 @@ const {
   processRefund,
   getPaymentHistory,
   getPaymentHealth,
-  testPhonePeConnection,
   getPhonePeConfig
 } = require('../controllers/paymentController');
 
@@ -24,9 +23,6 @@ router.get('/health', getPaymentHealth);
 
 // Configuration info - Public (safe info only)
 router.get('/config', getPhonePeConfig);
-
-// Test PhonePe connection - Public (for debugging)
-router.get('/test', testPhonePeConnection);
 
 // ==================== USER PROTECTED ROUTES ====================
 

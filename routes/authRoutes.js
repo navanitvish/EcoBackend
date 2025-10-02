@@ -21,6 +21,6 @@ router.post('/resend-otp', resendOTP);
 router.post('/login', login);
 
 // POST /api/auth/google - Google OAuth (auto-verified)
-router.post('/google', googleAuth);
+router.post('/google', googleAuth);  // Add this route
 
 module.exports = router;
