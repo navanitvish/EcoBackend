@@ -3,19 +3,19 @@ const nodemailer = require('nodemailer');
 // Create transporter with flexible credential checking
 const createTransporter = () => {
   const emailUser = process.env.EMAIL_USER;
-  const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD; // Check both
+  const emailPass = process.env.EMAIL_PASS || process.env.EMAIL_PASSWORD;
   
-  console.log('🔍 Email Configuration:');
+  console.log('Email Configuration:');
   console.log('EMAIL_USER:', emailUser);
   console.log('EMAIL_PASS:', !!process.env.EMAIL_PASS);
   console.log('EMAIL_PASSWORD:', !!process.env.EMAIL_PASSWORD);
   console.log('Using password:', !!emailPass);
   
   if (!emailUser || !emailPass) {
-    throw new Error('❌ Missing email credentials. Set EMAIL_USER and EMAIL_PASS (or EMAIL_PASSWORD) in .env file');
+    throw new Error('Missing email credentials. Set EMAIL_USER and EMAIL_PASS (or EMAIL_PASSWORD) in .env file');
   }
   
-  return nodemailer.createTransporter({
+  return nodemailer.createTransport({
     service: 'gmail',
     auth: {
       user: emailUser,
@@ -24,16 +24,16 @@ const createTransporter = () => {
   });
 };
 
-// Send OTP Email - Myntra Style Design
+// Send OTP Email
 const sendOTPEmail = async (email, otp, name) => {
   try {
-    console.log(`\n📨 Sending OTP email to: ${email}`);
+    console.log(`\nSending OTP email to: ${email}`);
     
     const transporter = createTransporter();
 
     // Test connection first
     await transporter.verify();
-    console.log('✅ SMTP connection verified');
+    console.log('SMTP connection verified');
 
     const mailOptions = {
       from: {
@@ -52,15 +52,12 @@ const sendOTPEmail = async (email, otp, name) => {
         </head>
         <body style="margin: 0; padding: 0; background-color: #f8f8f8; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;">
           
-          <!-- Email Container -->
           <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f8f8f8; padding: 40px 20px;">
             <tr>
               <td align="center">
                 
-                <!-- Main Content Card -->
                 <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 12px; box-shadow: 0 4px 20px rgba(0,0,0,0.08); overflow: hidden;">
                   
-                  <!-- Header -->
                   <tr>
                     <td style="background: linear-gradient(135deg, #ff3f6c, #ff527b); padding: 40px 40px 30px; text-align: center;">
                       <h1 style="color: white; font-size: 28px; font-weight: 700; margin: 0; letter-spacing: -0.5px;">
@@ -72,13 +69,11 @@ const sendOTPEmail = async (email, otp, name) => {
                     </td>
                   </tr>
                   
-                  <!-- Content -->
                   <tr>
                     <td style="padding: 40px;">
                       
-                      <!-- Welcome Message -->
                       <h2 style="color: #282c3f; font-size: 24px; font-weight: 600; margin: 0 0 24px; line-height: 1.3;">
-                        Hi ${name}! 👋
+                        Hi ${name}!
                       </h2>
                       
                       <p style="color: #696e79; font-size: 16px; line-height: 1.6; margin: 0 0 32px;">
@@ -86,7 +81,6 @@ const sendOTPEmail = async (email, otp, name) => {
                         Please verify your email address using the OTP below:
                       </p>
                       
-                      <!-- OTP Section -->
                       <div style="background: linear-gradient(135deg, #ff3f6c, #ff527b); border-radius: 12px; padding: 32px; text-align: center; margin: 32px 0;">
                         <p style="color: white; font-size: 14px; font-weight: 500; margin: 0 0 12px; text-transform: uppercase; letter-spacing: 1px;">
                           Your Verification Code
@@ -97,11 +91,10 @@ const sendOTPEmail = async (email, otp, name) => {
                           </span>
                         </div>
                         <p style="color: rgba(255,255,255,0.9); font-size: 14px; margin: 12px 0 0; font-weight: 400;">
-                          ⏰ Valid for 10 minutes only
+                          Valid for 10 minutes only
                         </p>
                       </div>
                       
-                      <!-- Instructions -->
                       <div style="background: #f8f9fa; border-radius: 8px; padding: 24px; margin: 24px 0;">
                         <h3 style="color: #282c3f; font-size: 16px; font-weight: 600; margin: 0 0 12px;">
                           What's next?
@@ -113,7 +106,6 @@ const sendOTPEmail = async (email, otp, name) => {
                         </ul>
                       </div>
                       
-                      <!-- Security Note -->
                       <div style="border-left: 4px solid #ff3f6c; padding-left: 16px; margin: 24px 0;">
                         <p style="color: #696e79; font-size: 14px; line-height: 1.5; margin: 0;">
                           <strong style="color: #282c3f;">Security Note:</strong> Never share this OTP with anyone. 
@@ -124,7 +116,6 @@ const sendOTPEmail = async (email, otp, name) => {
                     </td>
                   </tr>
                   
-                  <!-- Footer -->
                   <tr>
                     <td style="background: #282c3f; padding: 32px 40px; text-align: center;">
                       <p style="color: #a0a6b8; font-size: 14px; margin: 0 0 16px; line-height: 1.5;">
@@ -153,18 +144,17 @@ const sendOTPEmail = async (email, otp, name) => {
     };
 
     const info = await transporter.sendMail(mailOptions);
-    console.log('✅ Email sent successfully!');
-    console.log('📧 Message ID:', info.messageId);
+    console.log('Email sent successfully!');
+    console.log('Message ID:', info.messageId);
     
     return { success: true, messageId: info.messageId };
 
   } catch (error) {
-    console.error('❌ Email send error:', error);
+    console.error('Email send error:', error);
     
-    // Provide helpful error messages
     if (error.code === 'EAUTH') {
-      console.error('🔐 Gmail Authentication Failed!');
-      console.error('💡 Solutions:');
+      console.error('Gmail Authentication Failed!');
+      console.error('Solutions:');
       console.error('   1. Make sure 2-Factor Authentication is enabled on your Gmail');
       console.error('   2. Generate an App Password from Google Account Security settings');
       console.error('   3. Use the 16-character App Password (not your regular password)');
@@ -175,28 +165,17 @@ const sendOTPEmail = async (email, otp, name) => {
   }
 };
 
-// Send order confirmation email - Myntra Style Design
+// Send order confirmation email
 const sendOrderConfirmationEmail = async (order) => {
   try {
-    console.log('📨 Sending order confirmation email for order:', order.orderNumber);
-    console.log('📋 Order object structure:', {
-      orderNumber: order.orderNumber,
-      subtotal: order.subtotal,
-      shippingCost: order.shippingCost,
-      total: order.total,
-      items: order.items?.length,
-      shippingAddress: !!order.shippingAddress,
-      userId: !!order.userId
-    });
+    console.log('Sending order confirmation email for order:', order.orderNumber);
 
     const transporter = createTransporter();
 
-    // FIX: Safely extract values with fallbacks
     const subtotal = order.subtotal || 0;
     const shippingCost = order.shippingCost || order.shipping || 0;
     const total = order.total || 0;
     
-    // FIX: Handle cases where items might not have all expected properties
     const itemsHTML = (order.items || []).map(item => {
       const itemPrice = item.price || 0;
       const itemQuantity = item.quantity || 1;
@@ -229,7 +208,6 @@ const sendOrderConfirmationEmail = async (order) => {
       `;
     }).join('');
 
-    // FIX: Extract customer details safely
     const customerName = order.userId?.name || 
                         order.shippingAddress?.name || 
                         order.customerName || 
@@ -243,7 +221,6 @@ const sendOrderConfirmationEmail = async (order) => {
       throw new Error('Customer email not found in order data');
     }
 
-    // FIX: Extract shipping address safely
     const shippingAddress = order.shippingAddress || {};
     const addressLines = [
       shippingAddress.name || customerName,
@@ -258,7 +235,7 @@ const sendOrderConfirmationEmail = async (order) => {
         address: process.env.EMAIL_USER
       },
       to: customerEmail,
-      subject: `Order Confirmed! #${order.orderNumber} 🎉`,
+      subject: `Order Confirmed! #${order.orderNumber}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -273,10 +250,8 @@ const sendOrderConfirmationEmail = async (order) => {
             <tr>
               <td align="center" style="padding: 40px 20px;">
                 
-                <!-- Email Container -->
                 <table width="600" cellpadding="0" cellspacing="0" style="background-color: white; border-radius: 12px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,0.12);">
                   
-                  <!-- Header -->
                   <tr>
                     <td style="background: linear-gradient(135deg, #ff3f6c 0%, #ff527b 100%); padding: 0;">
                       <table width="100%" cellpadding="0" cellspacing="0">
@@ -294,31 +269,26 @@ const sendOrderConfirmationEmail = async (order) => {
                     </td>
                   </tr>
                   
-                  <!-- Success Banner -->
                   <tr>
                     <td style="background: #00d084; padding: 20px 40px; text-align: center;">
-                      <p style="color: white; font-size: 18px; font-weight: 600; margin: 0; display: flex; align-items: center; justify-content: center;">
-                        <span style="margin-right: 8px;">✓</span>
+                      <p style="color: white; font-size: 18px; font-weight: 600; margin: 0;">
                         Order Confirmed Successfully!
                       </p>
                     </td>
                   </tr>
                   
-                  <!-- Main Content -->
                   <tr>
                     <td style="padding: 40px;">
                       
-                      <!-- Greeting -->
                       <div style="margin-bottom: 32px;">
                         <h2 style="color: #282c3f; font-size: 24px; font-weight: 700; margin: 0 0 16px;">
-                          Hey ${customerName}! 🛍️
+                          Hey ${customerName}!
                         </h2>
                         <p style="color: #696e79; font-size: 16px; line-height: 1.6; margin: 0;">
                           Thank you for shopping with us! Your order has been confirmed and we're getting it ready for you.
                         </p>
                       </div>
                       
-                      <!-- Order Summary Header -->
                       <div style="background: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 24px; border-left: 4px solid #ff3f6c;">
                         <table width="100%" cellpadding="0" cellspacing="0">
                           <tr>
@@ -343,7 +313,6 @@ const sendOrderConfirmationEmail = async (order) => {
                         </table>
                       </div>
                       
-                      <!-- Order Items -->
                       <div style="margin-bottom: 32px;">
                         <h3 style="color: #282c3f; font-size: 18px; font-weight: 600; margin: 0 0 20px; padding-bottom: 12px; border-bottom: 2px solid #f0f0f0;">
                           Your Items (${(order.items || []).length})
@@ -354,7 +323,6 @@ const sendOrderConfirmationEmail = async (order) => {
                         </table>
                       </div>
                       
-                      <!-- Price Breakdown -->
                       <div style="background: #f8f9fa; border-radius: 12px; padding: 24px; margin-bottom: 32px;">
                         <h3 style="color: #282c3f; font-size: 18px; font-weight: 600; margin: 0 0 20px;">
                           Price Details
@@ -380,10 +348,9 @@ const sendOrderConfirmationEmail = async (order) => {
                         </table>
                       </div>
                       
-                      <!-- Shipping Address -->
                       <div style="margin-bottom: 32px;">
                         <h3 style="color: #282c3f; font-size: 18px; font-weight: 600; margin: 0 0 16px;">
-                          📦 Delivery Address
+                          Delivery Address
                         </h3>
                         <div style="background: white; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px;">
                           <p style="color: #282c3f; font-size: 15px; line-height: 1.6; margin: 0; font-weight: 500;">
@@ -392,17 +359,15 @@ const sendOrderConfirmationEmail = async (order) => {
                         </div>
                       </div>
                       
-                      <!-- Track Order Button -->
                       <div style="text-align: center; margin: 32px 0;">
                         <a href="#" style="background: linear-gradient(135deg, #ff3f6c, #ff527b); color: white; text-decoration: none; padding: 16px 32px; border-radius: 8px; font-size: 16px; font-weight: 600; display: inline-block; text-transform: uppercase; letter-spacing: 0.5px;">
                           Track Your Order
                         </a>
                       </div>
                       
-                      <!-- What's Next -->
                       <div style="background: linear-gradient(135deg, #e3f2fd, #f3e5f5); border-radius: 12px; padding: 24px; text-align: center;">
                         <h3 style="color: #282c3f; font-size: 18px; font-weight: 600; margin: 0 0 12px;">
-                          What happens next? 📋
+                          What happens next?
                         </h3>
                         <p style="color: #696e79; font-size: 14px; line-height: 1.6; margin: 0;">
                           We'll send you updates as your order moves through our fulfillment process. 
@@ -413,11 +378,9 @@ const sendOrderConfirmationEmail = async (order) => {
                     </td>
                   </tr>
                   
-                  <!-- Footer -->
                   <tr>
                     <td style="background: #282c3f; padding: 40px;">
                       
-                      <!-- Social & Support -->
                       <div style="text-align: center; margin-bottom: 24px;">
                         <h4 style="color: white; font-size: 16px; font-weight: 600; margin: 0 0 16px;">
                           Stay Connected
@@ -427,7 +390,6 @@ const sendOrderConfirmationEmail = async (order) => {
                         </p>
                       </div>
                       
-                      <!-- Footer Links -->
                       <div style="text-align: center; border-top: 1px solid #3e4152; padding-top: 24px;">
                         <p style="color: #696e79; font-size: 12px; margin: 0 0 8px;">
                           © ${new Date().getFullYear()} Be Infinity. All rights reserved.
@@ -452,11 +414,11 @@ const sendOrderConfirmationEmail = async (order) => {
     };
 
     const result = await transporter.sendMail(mailOptions);
-    console.log('✅ Order confirmation email sent successfully:', result.messageId);
+    console.log('Order confirmation email sent successfully:', result.messageId);
     return result;
 
   } catch (error) {
-    console.error('❌ Error sending order confirmation email:', error);
+    console.error('Error sending order confirmation email:', error);
     throw new Error('Failed to send order confirmation email: ' + error.message);
   }
 };
