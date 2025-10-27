@@ -1,0 +1,11 @@
+2025-10-04 12:51:27: ========================================
+2025-10-04 12:51:27: PhonePe Production SDK Initialized
+2025-10-04 12:51:27: ========================================
+2025-10-04 12:51:27: Environment: PRODUCTION
+2025-10-04 12:51:27: Merchant ID: M23GT5WAJ1JPN
+2025-10-04 12:51:27: Client ID: SU2509191650109098116775
+2025-10-04 12:51:27: Redirect URL: https://beinfinity.in/payment/callback
+2025-10-04 12:51:27: Callback URL: http://localhost:5601/api/payments/callback
+2025-10-04 12:51:27: ========================================
+2025-10-04 12:51:28: Server running on port 5601 in production mode
+2025-10-04 12:51:28: ✅ Database connected successfully
